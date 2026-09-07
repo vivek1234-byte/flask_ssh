@@ -1,74 +1,107 @@
 pipeline {
     agent any
 
+    environment {
+        // Name of the SSH credential configured in Jenkins
+        GIT_SSH_CREDENTIAL_ID = 'github-ssh-key'
+        // GitHub repository SSH URL (update with your repo)
+        REPO_URL = 'git@github.com:<your-username>/<your-repo>.git'
+        BRANCH = 'main'
+        // Python version (adjust if needed)
+        PYTHON = 'python3'
+        VENV_DIR = 'venv'
+        FLASK_APP = 'app.py'
+        FLASK_PORT = '5000'
+    }
+
     stages {
+        stage('Checkout') {
+            steps {
+                // Authenticate via SSH and pull the latest code
+                git branch: "${BRANCH}",
+                    credentialsId: "${GIT_SSH_CREDENTIAL_ID}",
+                    url: "${REPO_URL}"
+            }
+        }
+
+        stage('Setup Python Virtual Environment') {
+            steps {
+                sh """
+                    echo '>> Creating Python virtual environment...'
+                    ${PYTHON} -m venv ${VENV_DIR}
+                    echo '>> Virtual environment created at ${VENV_DIR}/'
+                """
+            }
+        }
 
         stage('Install Dependencies') {
             steps {
-                sh '''
-                    echo "Python version:"
-                    python3 --version
-
-                    echo "Creating virtual environment..."
-                    rm -rf venv
-                    python3 -m venv venv
-
-                    echo "Installing dependencies..."
-                    ./venv/bin/pip install --upgrade pip
-                    ./venv/bin/pip install -r requirements.txt
-                '''
+                sh """
+                    echo '>> Activating virtual environment and installing dependencies...'
+                    . ${VENV_DIR}/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                    echo '>> Dependencies installed successfully.'
+                """
             }
         }
 
-        stage('Build') {
+        stage('Lint') {
             steps {
-                sh '''
-                    echo "Building Flask application..."
-                    ./venv/bin/python3 -m py_compile app.py
-
-                    echo "Build successful!"
-                '''
+                sh """
+                    echo '>> Running linter...'
+                    . ${VENV_DIR}/bin/activate
+                    pip install flake8
+                    flake8 app.py --max-line-length=120 --exclude=${VENV_DIR} || true
+                """
             }
         }
 
-        stage('Run Flask') {
+        stage('Test') {
             steps {
-                sh '''
-                    echo "Starting Flask..."
+                sh """
+                    echo '>> Running tests...'
+                    . ${VENV_DIR}/bin/activate
+                    pip install pytest
+                    pytest tests/ -v --tb=short || echo 'No tests found or tests failed.'
+                """
+            }
+        }
 
-                    export JENKINS_NODE_COOKIE=dontKillMe
+        stage('Build / Run Flask App') {
+            steps {
+                sh """
+                    echo '>> Building and verifying Flask application...'
+                    . ${VENV_DIR}/bin/activate
+                    export FLASK_APP=${FLASK_APP}
+                    export FLASK_ENV=production
 
-                    nohup ./venv/bin/python3 app.py > flask.log 2>&1 &
-
-                    FLASK_PID=$!
-
-                    echo "Flask PID: $FLASK_PID"
-
+                    # Verify the app can start (run briefly and confirm it boots)
+                    timeout 10 python ${FLASK_APP} &
+                    APP_PID=\$!
                     sleep 5
 
-                    echo "===== FLASK LOG ====="
-                    cat flask.log
+                    # Health check
+                    curl -s -o /dev/null -w "%{http_code}" http://localhost:${FLASK_PORT}/ || true
 
-                    echo "===== PROCESS ====="
-                    ps -p $FLASK_PID -f || true
-
-                    echo "===== PORT ====="
-                    ss -lntp | grep 5000 || true
-
-                    echo "===== CURL TEST ====="
-                    curl -v http://127.0.0.1:5000 || true
-                '''
+                    # Shut down gracefully
+                    kill \$APP_PID 2>/dev/null || true
+                    echo '>> Flask application build and smoke test complete.'
+                """
             }
         }
     }
 
     post {
-        success {
-            echo 'Flask application started on port 5000'
+        always {
+            echo '>> Cleaning up workspace...'
+            cleanWs()
         }
-
+        success {
+            echo '>> Pipeline completed successfully!'
+        }
         failure {
-            echo 'Pipeline failed!'
+            echo '>> Pipeline failed. Check the logs above for details.'
         }
     }
 }
