@@ -5,7 +5,7 @@ pipeline {
         // Name of the SSH credential configured in Jenkins
         GIT_SSH_CREDENTIAL_ID = 'github-ssh-key'
         // GitHub repository SSH URL (update with your repo)
-        REPO_URL = 'git@github.com:<your-username>/<your-repo>.git'
+        REPO_URL = 'git@github.com:vivek1234-byte/flask_ssh.git'
         BRANCH = 'main'
         // Python version (adjust if needed)
         PYTHON = 'python3'
@@ -74,7 +74,6 @@ pipeline {
                     echo '>> Building and verifying Flask application...'
                     . ${VENV_DIR}/bin/activate
                     export FLASK_APP=${FLASK_APP}
-                    export FLASK_ENV=production
 
                     # Verify the app can start (run briefly and confirm it boots)
                     timeout 10 python ${FLASK_APP} &
