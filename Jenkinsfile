@@ -11,7 +11,7 @@ pipeline {
         PYTHON = 'python3'
         VENV_DIR = 'venv'
         FLASK_APP = 'app.py'
-        FLASK_PORT = '5050'
+        FLASK_PORT = '5001'
     }
 
     stages {
